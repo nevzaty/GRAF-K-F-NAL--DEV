@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>OYUN</title>
+  <style>
+    body {
+      margin: 0;
+      background: black;
+      font-family: sans-serif;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    #gameCanvas {
+      border: 2px solid white;
+      background-color: black;
+      display: block;
+      margin-top: 20px;
+    }
+
+    #ui {
+      position: absolute;
+      top: 20px;
+      text-align: center;
+    }
+
+    #startScreen, #gameOverScreen, #message {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.9);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      font-size: 24px;
+    }
+
+    #message {
+      font-size: 20px;
+      background: rgba(0,0,0,0.6);
+      height: auto;
+      padding: 10px;
+    }
+
+    button {
+      margin-top: 15px;
+      font-size: 20px;
+      padding: 10px 20px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <div>
+      Skor: <span id="score">0</span> |
+      Can: <span id="lives">3</span> |
+      Seviye: <span id="level">1</span> |
+      🏆 En Yüksek Skor: <span id="highScore">0</span>
+    </div>
+  </div>
+
+  <canvas id="gameCanvas" width="480" height="640"></canvas>
+
+  <div id="startScreen">
+    <h1>🚀 Nevzat Yağcıoğlu</h1>
+    <button onclick="startGame()">Oyuna Başla</button>
+  </div>
+
+  <div id="gameOverScreen" style="display:none">
+    <h1>💀 Oyun Bitti!</h1>
+    <p>Skorunuz: <span id="finalScore"></span></p>
+    <button onclick="startGame()">Tekrar Oyna</button>
+  </div>
+
+  <div id="message" style="display:none"></div>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    const tankImg = new Image();
+    tankImg.src = "tank.png";
+
+    const enemyImg = new Image();
+    enemyImg.src = "enemy_orange.png";
+
+    // Powerup görselleri
+    const powerupImages = {
+      life: new Image(),
+      rapid: new Image()
+    };
+    powerupImages.life.src = "heart.png";
+    powerupImages.rapid.src = "lightning.png";
+
+    let player, enemies, bullets, stars, powerups, score, lives, keys, level, gameRunning, boss, highScore;
+
+    function resetGame() {
+      player = {
+        x: canvas.width / 2 - 20,
+        y: canvas.height - 60,
+        width: 40,
+        height: 40,
+        color: "white",
+        speed: 5,
+        fireRate: 500,
+        lastShot: 0
+      };
+      enemies = [];
+      bullets = [];
+      stars = Array.from({length: 50}, () => ({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        size: Math.random() * 2,
+        speed: Math.random() * 1 + 0.5
+      }));
+      powerups = [];
+      score = 0;
+      lives = 3;
+      level = 1;
+      boss = null;
+      keys = {};
+      gameRunning = true;
+      highScore = Number(localStorage.getItem("highScore")) || 0;
+      updateUI();
+    }
+
+    function updateUI() {
+      document.getElementById("score").textContent = score;
+      document.getElementById("lives").textContent = lives;
+      document.getElementById("level").textContent = level;
+      document.getElementById("highScore").textContent = highScore;
+    }
+
+    document.addEventListener("keydown", (e) => keys[e.code] = true);
+    document.addEventListener("keyup", (e) => keys[e.code] = false);
+
+    function createEnemy() {
+      if (!gameRunning || boss) return;
+      enemies.push({
+        x: Math.random() * (canvas.width - 40),
+        y: -40,
+        width: 40,
+        height: 40,
+        color: "orange",
+        speed: 1.5
+      });
+    }
+
+    function spawnPowerup(x, y) {
+      powerups.push({ x, y, size: 15, speed: 1.5, type: Math.random() > 0.5 ? "life" : "rapid" });
+    }
+
+    function spawnBoss() {
+      boss = { x: 100, y: -100, width: 100, height: 100, color: "blue", speed: 1, health: 20 };
+      showMessage("🚨 BOSS GELIYOR!");
+    }
+
+    function update(time) {
+      if (!gameRunning) return;
+
+      stars.forEach(star => {
+        star.y += star.speed;
+        if (star.y > canvas.height) {
+          star.y = 0;
+          star.x = Math.random() * canvas.width;
+        }
+      });
+
+      if (keys["ArrowLeft"] && player.x > 0) player.x -= player.speed;
+      if (keys["ArrowRight"] && player.x + player.width < canvas.width) player.x += player.speed;
+      if (keys["Space"] && time - player.lastShot > player.fireRate) {
+        bullets.push({
+          x: player.x + player.width / 2 - 2,
+          y: player.y,
+          width: 4,
+          height: 10,
+          speed: 6,
+          color: "lime"
+        });
+        player.lastShot = time;
+      }
+
+      bullets = bullets.filter(b => b.y > 0);
+      bullets.forEach(bullet => bullet.y -= bullet.speed);
+
+      enemies.forEach(enemy => enemy.y += enemy.speed);
+      enemies = enemies.filter(e => e.y < canvas.height);
+
+      powerups.forEach(p => p.y += p.speed);
+      powerups = powerups.filter(p => p.y < canvas.height);
+
+      enemies.forEach((enemy, ei) => {
+        bullets.forEach((bullet, bi) => {
+          if (checkCollision(enemy, bullet)) {
+            bullets.splice(bi, 1);
+            enemies.splice(ei, 1);
+            score += 10;
+            if (Math.random() < 0.2) spawnPowerup(enemy.x, enemy.y);
+          }
+        });
+        if (checkCollision(enemy, player)) {
+          enemies.splice(ei, 1);
+          lives--;
+          if (lives <= 0) endGame();
+        }
+      });
+
+      powerups.forEach((p, pi) => {
+        if (checkCollision(player, {
+          x: p.x - p.size,
+          y: p.y - p.size,
+          width: p.size * 2,
+          height: p.size * 2
+        })) {
+          if (p.type === "life") {
+            lives++;
+            showMessage("💖 +1 Can");
+          } else if (p.type === "rapid") {
+            player.fireRate = 200;
+            showMessage("⚡ Hızlı Ateş! 5sn");
+            setTimeout(() => {
+              player.fireRate = 500;
+            }, 5000);
+          }
+          powerups.splice(pi, 1);
+        }
+      });
+
+      if (boss) {
+        boss.y += boss.speed;
+        bullets.forEach((bullet, bi) => {
+          if (checkCollision(boss, bullet)) {
+            bullets.splice(bi, 1);
+            boss.health--;
+            if (boss.health <= 0) {
+              boss = null;
+              score += 100;
+              level++;
+              showMessage("✔️ Seviye " + level + "!");
+            }
+          }
+        });
+      }
+
+      if (!boss && score >= level * 100 && score > 0) {
+        if (level % 5 === 0) spawnBoss();
+        else {
+          level++;
+          showMessage("✔️ Seviye " + level + "!");
+        }
+      }
+
+      updateUI();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "white";
+      stars.forEach(star => {
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      if (tankImg.complete) {
+        ctx.drawImage(tankImg, player.x, player.y, player.width, player.height);
+      }
+
+      bullets.forEach(b => {
+        ctx.fillStyle = b.color;
+        ctx.fillRect(b.x, b.y, b.width, b.height);
+      });
+
+      enemies.forEach(e => {
+        if (enemyImg.complete) {
+          ctx.drawImage(enemyImg, e.x, e.y, e.width, e.height);
+        } else {
+          ctx.fillStyle = e.color;
+          ctx.fillRect(e.x, e.y, e.width, e.height);
+        }
+      });
+
+      powerups.forEach(p => {
+        const img = powerupImages[p.type];
+        if (img.complete) {
+          ctx.drawImage(img, p.x - p.size, p.y - p.size, p.size * 2, p.size * 2);
+        } else {
+          ctx.fillStyle = p.type === "life" ? "pink" : "cyan";
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+
+      if (boss) {
+        ctx.fillStyle = boss.color;
+        ctx.fillRect(boss.x, boss.y, boss.width, boss.height);
+      }
+    }
+
+    function gameLoop(time) {
+      update(time);
+      draw();
+      if (gameRunning) requestAnimationFrame(gameLoop);
+    }
+
+    function checkCollision(a, b) {
+      const aW = a.width || a.size * 2;
+      const aH = a.height || a.size * 2;
+      const bW = b.width || b.size * 2;
+      const bH = b.height || b.size * 2;
+
+      return a.x < b.x + bW &&
+             a.x + aW > b.x &&
+             a.y < b.y + bH &&
+             a.y + aH > b.y;
+    }
+
+    function startGame() {
+      resetGame();
+      document.getElementById("startScreen").style.display = "none";
+      document.getElementById("gameOverScreen").style.display = "none";
+      gameLoop();
+    }
+
+    function endGame() {
+      gameRunning = false;
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem("highScore", highScore);
+        showMessage("🎉 Yeni En Yüksek Skor!");
+      }
+      document.getElementById("finalScore").textContent = score;
+      document.getElementById("gameOverScreen").style.display = "flex";
+    }
+
+    function showMessage(msg) {
+      const msgBox = document.getElementById("message");
+      msgBox.textContent = msg;
+      msgBox.style.display = "flex";
+      setTimeout(() => msgBox.style.display = "none", 2000);
+    }
+
+    setInterval(createEnemy, 1000);
+  </script>
+</body>
+</html>
